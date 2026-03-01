@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from apps.common.logging import setup_logging
+from apps.common.logging import get_logger, setup_logging
 from apps.tg_sender.service import send_text
 
 
@@ -13,7 +13,9 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging()
-    send_text(lead_id=args.lead_id, text=args.text)
+    logger = get_logger("apps.tg_sender.main")
+    tg_message_id = send_text(lead_id=args.lead_id, text=args.text)
+    logger.info("send finished", extra={"lead_id": args.lead_id, "tg_message_id": tg_message_id})
 
 
 if __name__ == "__main__":

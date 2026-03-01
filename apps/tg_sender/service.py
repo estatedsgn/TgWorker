@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import select
 
@@ -13,16 +14,23 @@ from apps.common.telegram_client import get_client
 logger = get_logger("apps.tg_sender.service")
 
 
-def _validate_lead_for_send(lead: Lead) -> None:
+def _is_blocked(lead: Lead) -> bool:
     if not lead.consent:
-        raise ValueError("lead has no consent")
+        logger.info("blocked consent=false", extra={"lead_id": lead.lead_id})
+        return True
+
     if lead.dnc or lead.status == LeadStatus.DNC.value:
-        raise ValueError("lead is marked as DNC")
+        logger.info("blocked dnc", extra={"lead_id": lead.lead_id})
+        return True
+
     if not lead.tg_peer_id and not lead.tg_username:
-        raise ValueError("lead has no telegram destination")
+        logger.info("blocked no tg destination", extra={"lead_id": lead.lead_id})
+        return True
+
+    return False
 
 
-def send_text(lead_id: str, text: str) -> None:
+def send_text(lead_id: str, text: str) -> Optional[int]:
     config = get_config()
     now = datetime.now(timezone.utc)
 
@@ -31,10 +39,11 @@ def send_text(lead_id: str, text: str) -> None:
         if lead is None:
             raise ValueError(f"lead not found: {lead_id}")
 
-        try:
-            _validate_lead_for_send(lead)
-            tg_message_id = None
+        if _is_blocked(lead):
+            return None
 
+        try:
+            tg_message_id: Optional[int] = None
             if config.dry_run:
                 logger.info("dry-run send", extra={"lead_id": lead.lead_id})
             else:
@@ -45,20 +54,22 @@ def send_text(lead_id: str, text: str) -> None:
                     tg_message_id = sent.id
                 logger.info("telegram message sent", extra={"lead_id": lead.lead_id})
 
-            out_msg = Message(
-                lead_id=lead.lead_id,
-                direction=MessageDirection.OUT.value,
-                text=text,
-                ts=now,
-                tg_message_id=tg_message_id,
-                meta_json={"dry_run": config.dry_run},
+            session.add(
+                Message(
+                    lead_id=lead.lead_id,
+                    direction=MessageDirection.OUT.value,
+                    text=text,
+                    ts=now,
+                    tg_message_id=tg_message_id,
+                    meta_json={"dry_run": config.dry_run},
+                )
             )
-            session.add(out_msg)
 
             lead.last_message_out = text
             lead.last_out_at = now
             lead.attempts_count += 1
             lead.updated_at = now
+            return tg_message_id
         except Exception as exc:
             lead.status = LeadStatus.ERROR.value
             lead.error = str(exc)[:500]

@@ -43,7 +43,7 @@ def upsert_leads(account_id: str) -> None:
         existing = {
             lead.lead_id: lead
             for lead in session.scalars(
-                select(Lead).where(Lead.lead_id.in_(["lead_1", "lead_2"]))
+                select(Lead).where(Lead.lead_id.in_(["lead_1", "lead_2", "lead_test_1"]))
             ).all()
         }
 
@@ -70,8 +70,22 @@ def upsert_leads(account_id: str) -> None:
         lead_2.tg_username = None
         lead_2.next_action_at = now
 
+        lead_test_1 = existing.get("lead_test_1") or Lead(
+            lead_id="lead_test_1",
+            account_id=account_id,
+            consent=True,
+            status=LeadStatus.NEW.value,
+        )
+        lead_test_1.account_id = account_id
+        lead_test_1.tg_username = "placeholder_test_username"
+        lead_test_1.next_action_at = now
+        lead_test_1.stage = 0
+        lead_test_1.attempts_count = 0
+        lead_test_1.dnc = False
+
         session.add(lead_1)
         session.add(lead_2)
+        session.add(lead_test_1)
 
 
 def main() -> None:
