@@ -30,7 +30,17 @@ def _is_blocked(lead: Lead) -> bool:
     return False
 
 
-def send_text(lead_id: str, text: str) -> Optional[int]:
+async def _send_via_telegram(account_id: str, target: int | str, text: str) -> int:
+    client = get_client(account_id)
+    await client.start()
+    try:
+        sent = await client.send_message(entity=target, message=text)
+        return sent.id
+    finally:
+        await client.disconnect()
+
+
+async def send_text(lead_id: str, text: str) -> Optional[int]:
     config = get_config()
     now = datetime.now(timezone.utc)
 
@@ -47,11 +57,8 @@ def send_text(lead_id: str, text: str) -> Optional[int]:
             if config.dry_run:
                 logger.info("dry-run send", extra={"lead_id": lead.lead_id})
             else:
-                client = get_client(lead.account_id)
-                with client:
-                    target = lead.tg_peer_id if lead.tg_peer_id else lead.tg_username
-                    sent = client.send_message(entity=target, message=text)
-                    tg_message_id = sent.id
+                target = lead.tg_peer_id if lead.tg_peer_id else lead.tg_username
+                tg_message_id = await _send_via_telegram(lead.account_id, target=target, text=text)
                 logger.info("telegram message sent", extra={"lead_id": lead.lead_id})
 
             session.add(
