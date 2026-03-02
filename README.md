@@ -139,7 +139,7 @@ ruff check .
 ```
 
 
-## E2E test (server)
+## E2E on VPS
 
 Ниже runbook для Ubuntu-сервера, который можно повторить с нуля.
 
@@ -233,3 +233,18 @@ limit 5;
 - после sender есть запись `OUT` в `messages`;
 - после ответа с телефона listener пишет `IN` и обновляет `leads.status` на `IN_DIALOG`;
 - повторно обработанные входящие с тем же `tg_message_id` игнорируются (dedup).
+
+
+### Quick e2e flow (manual_1)
+
+```sql
+insert into leads (lead_id, account_id, tg_username, consent, status, stage, attempts_count, dnc)
+values ('manual_1', 'acc_01', 'your_test_username', true, 'NEW', 0, 0, false)
+on conflict (lead_id) do update set tg_username=excluded.tg_username, consent=true, dnc=false, status='NEW';
+```
+
+```bash
+python -m apps.tg_listener.main
+# in second shell
+python -m apps.tg_sender.main manual_1 "hello"
+```

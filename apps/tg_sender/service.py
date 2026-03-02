@@ -14,17 +14,13 @@ from apps.common.telegram_client import get_client
 logger = get_logger("apps.tg_sender.service")
 
 
-def _is_blocked(lead: Lead) -> bool:
+def _is_blocked_policy(lead: Lead) -> bool:
     if not lead.consent:
         logger.info("blocked consent=false", extra={"lead_id": lead.lead_id})
         return True
 
     if lead.dnc or lead.status == LeadStatus.DNC.value:
         logger.info("blocked dnc", extra={"lead_id": lead.lead_id})
-        return True
-
-    if not lead.tg_peer_id and not lead.tg_username:
-        logger.info("blocked no tg destination", extra={"lead_id": lead.lead_id})
         return True
 
     return False
@@ -49,7 +45,14 @@ async def send_text(lead_id: str, text: str) -> Optional[int]:
         if lead is None:
             raise ValueError(f"lead not found: {lead_id}")
 
-        if _is_blocked(lead):
+        if _is_blocked_policy(lead):
+            return None
+
+        if not lead.tg_peer_id and not lead.tg_username:
+            lead.status = LeadStatus.ERROR.value
+            lead.error = "missing peer"
+            lead.updated_at = now
+            logger.error("missing peer", extra={"lead_id": lead.lead_id})
             return None
 
         try:

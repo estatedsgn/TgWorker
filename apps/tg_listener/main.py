@@ -4,7 +4,7 @@ import asyncio
 import random
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from telethon import events
 
 from apps.common.config import get_config
@@ -13,7 +13,13 @@ from apps.common.logging import get_logger, setup_logging
 from apps.common.models import Account, Lead, LeadStatus, Message, MessageDirection
 from apps.common.telegram_client import get_client
 
-DNC_KEYWORDS = {"не пиши", "отпишись", "stop"}
+DNC_KEYWORDS = {"не пиши", "отпишись", "stop", "unsubscribe"}
+
+
+def _normalize_username(username: str | None) -> str | None:
+    if not username:
+        return None
+    return username.lstrip("@").strip().lower() or None
 
 
 def _contains_dnc(text: str) -> bool:
@@ -26,8 +32,11 @@ def _find_lead(session, peer_id: int, username: str | None) -> Lead | None:
     if lead is not None:
         return lead
 
-    if username:
-        return session.scalar(select(Lead).where(Lead.tg_username == username))
+    normalized = _normalize_username(username)
+    if normalized:
+        return session.scalar(
+            select(Lead).where(func.lower(func.replace(Lead.tg_username, "@", "")) == normalized)
+        )
 
     return None
 
@@ -58,10 +67,21 @@ def process_incoming_message(
     tg_message_id: int | None,
     logger,
 ) -> str:
+    normalized_username = _normalize_username(username)
+    logger.info(
+        "incoming",
+        extra={
+            "peer_id": peer_id,
+            "username": normalized_username,
+            "preview": incoming_text[:80],
+            "tg_message_id": tg_message_id,
+        },
+    )
+
     with get_session() as session:
-        lead = _find_lead(session, peer_id=peer_id, username=username)
+        lead = _find_lead(session, peer_id=peer_id, username=normalized_username)
         if lead is None:
-            logger.info("incoming message ignored: unknown lead", extra={"peer_id": peer_id})
+            logger.info("unknown lead", extra={"peer_id": peer_id, "username": normalized_username})
             return "ignored_unknown"
 
         if _is_duplicate_in_message(session, lead.lead_id, tg_message_id):
@@ -72,13 +92,30 @@ def process_incoming_message(
             return "ignored_duplicate"
 
         now = datetime.now(timezone.utc)
+        session.add(
+            Message(
+                lead_id=lead.lead_id,
+                direction=MessageDirection.IN.value,
+                text=incoming_text,
+                tg_message_id=tg_message_id,
+                meta_json={"peer_id": peer_id, "username": normalized_username},
+                ts=now,
+            )
+        )
+
+        if lead.tg_peer_id is None:
+            lead.tg_peer_id = peer_id
+
+        if normalized_username and (not lead.tg_username or lead.tg_username.startswith("@")):
+            lead.tg_username = normalized_username
+
+        lead.last_message_in = incoming_text
+        lead.last_in_at = now
+        lead.updated_at = now
 
         if _contains_dnc(incoming_text):
             lead.dnc = True
             lead.status = LeadStatus.DNC.value
-            lead.last_message_in = incoming_text
-            lead.last_in_at = now
-            lead.updated_at = now
             logger.info("lead switched to DNC", extra={"lead_id": lead.lead_id})
             return "dnc"
 
@@ -90,26 +127,9 @@ def process_incoming_message(
             )
             return "ignored_no_account"
 
-        session.add(
-            Message(
-                lead_id=lead.lead_id,
-                direction=MessageDirection.IN.value,
-                text=incoming_text,
-                tg_message_id=tg_message_id,
-                meta_json={"peer_id": peer_id, "username": username},
-                ts=now,
-            )
-        )
-
-        if lead.tg_peer_id is None:
-            lead.tg_peer_id = peer_id
-
-        lead.last_message_in = incoming_text
-        lead.last_in_at = now
         if lead.status not in {LeadStatus.DNC.value, LeadStatus.ERROR.value}:
             lead.status = LeadStatus.IN_DIALOG.value
         lead.next_action_at = _calc_next_action(account)
-        lead.updated_at = now
 
         logger.info("incoming message persisted", extra={"lead_id": lead.lead_id})
         return "processed"

@@ -16,6 +16,10 @@ def main() -> None:
     setup_logging()
     logger = get_logger("apps.tg_sender.main")
     tg_message_id = asyncio.run(send_text(lead_id=args.lead_id, text=args.text))
+    if tg_message_id is None:
+        print("dry_run_or_blocked")
+    else:
+        print(tg_message_id)
     logger.info("send finished", extra={"lead_id": args.lead_id, "tg_message_id": tg_message_id})
 
 
