@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tg-leads-agent"
+version = "0.1.0"
+description = "Telegram leads agent scaffold"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "SQLAlchemy>=2.0,<3.0",
+  "alembic>=1.13,<2.0",
+  "psycopg2-binary>=2.9,<3.0",
+  "python-dotenv>=1.0,<2.0",
+  "ruff>=0.11,<1.0",
+  "telethon>=1.36,<2.0",
+  "PySocks>=1.7,<2.0",
+  "psycopg[binary]>=3.2,<4.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apps*"]
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
