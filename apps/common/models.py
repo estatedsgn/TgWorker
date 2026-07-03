@@ -129,6 +129,68 @@ class Message(Base):
     lead: Mapped[Lead] = relationship(back_populates="messages")
 
 
+class DigestChannel(Base):
+    __tablename__ = "digest_channels"
+
+    channel_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    last_message_id: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    posts: Mapped[list[ChannelPost]] = relationship(back_populates="channel")
+
+
+class ChannelPost(Base):
+    __tablename__ = "channel_posts"
+    __table_args__ = (
+        Index("uq_channel_posts_channel_msg", "channel_id", "tg_message_id", unique=True),
+        Index("ix_channel_posts_posted_at", "posted_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("digest_channels.channel_id"), nullable=False
+    )
+    tg_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    views: Mapped[int | None] = mapped_column(Integer)
+    forwards: Mapped[int | None] = mapped_column(Integer)
+    has_media: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    # NB: shadows sqlalchemy.text within the class body — keep after columns using text().
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    digest_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("digests.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    channel: Mapped[DigestChannel] = relationship(back_populates="posts")
+
+
+class Digest(Base):
+    __tablename__ = "digests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    digest_date: Mapped[date] = mapped_column(Date, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    items_json: Mapped[list | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DailyCounter(Base):
     __tablename__ = "daily_counters"
     __table_args__ = (PrimaryKeyConstraint("account_id", "date", name="pk_daily_counters"),)

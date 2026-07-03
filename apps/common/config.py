@@ -19,6 +19,14 @@ class Config:
     tg_api_id: int | None = None
     tg_api_hash: str | None = None
     tg_session_path: str | None = None
+    llm_model: str = "claude-haiku-4-5"
+    digest_target_chat: str = "me"
+    digest_hour: int = 9
+    digest_timezone: str = "Europe/Berlin"
+    digest_max_items: int = 12
+    digest_llm_candidates: int = 40
+    digest_window_hours: int = 24
+    digest_collect_interval_min: int = 30
 
     def safe_summary(self) -> dict[str, str | bool | int | None]:
         return {
@@ -29,6 +37,9 @@ class Config:
             "tg_api_id_set": self.tg_api_id is not None,
             "tg_api_hash_set": self.tg_api_hash is not None,
             "tg_session_path": self.tg_session_path,
+            "llm_model": self.llm_model,
+            "digest_target_chat": self.digest_target_chat,
+            "digest_hour": self.digest_hour,
         }
 
 
@@ -45,6 +56,12 @@ def _required_env(name: str) -> str:
     return value.strip()
 
 
+def _parse_int(raw: str | None, default: int) -> int:
+    if raw is None or not raw.strip():
+        return default
+    return int(raw.strip())
+
+
 @lru_cache(maxsize=1)
 def get_config() -> Config:
     tg_api_id_raw = os.getenv("TG_API_ID")
@@ -57,4 +74,12 @@ def get_config() -> Config:
         tg_api_id=int(tg_api_id_raw) if tg_api_id_raw else None,
         tg_api_hash=os.getenv("TG_API_HASH"),
         tg_session_path=os.getenv("TG_SESSION_PATH"),
+        llm_model=os.getenv("LLM_MODEL", "claude-haiku-4-5"),
+        digest_target_chat=os.getenv("DIGEST_TARGET_CHAT", "me"),
+        digest_hour=_parse_int(os.getenv("DIGEST_HOUR"), 9),
+        digest_timezone=os.getenv("DIGEST_TIMEZONE", "Europe/Berlin"),
+        digest_max_items=_parse_int(os.getenv("DIGEST_MAX_ITEMS"), 12),
+        digest_llm_candidates=_parse_int(os.getenv("DIGEST_LLM_CANDIDATES"), 40),
+        digest_window_hours=_parse_int(os.getenv("DIGEST_WINDOW_HOURS"), 24),
+        digest_collect_interval_min=_parse_int(os.getenv("DIGEST_COLLECT_INTERVAL_MIN"), 30),
     )

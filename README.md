@@ -131,6 +131,64 @@ DRY_RUN=false python -m apps.tg_sender.main lead_1 "Привет! Это тес�
 - обновление `lead` (`last_message_in`, `last_in_at`, `IN_DIALOG`, `next_action_at`)
 - обработка `не писать/отпишись/stop` -> `dnc=true`, `status=DNC`
 
+## Digest bot — ежедневный дайджест из Telegram-каналов
+
+Модуль `apps/digest` собирает посты из 10-30 каналов и раз в день присылает короткий дайджест
+самого важного со ссылками на оригинальные посты.
+
+### Как это работает
+
+1. **Сбор** (`collect`): userbot читает новые посты из подписанных каналов и складывает их в
+   `channel_posts` (текст, просмотры, репосты, наличие медиа).
+2. **Кластеризация** (бесплатно, локально): тексты нормализуются, считается Jaccard-схожесть по
+   3-словным шинглам, похожие посты из разных каналов объединяются в кластер. **Повтор новости в
+   нескольких каналах — главный сигнал важности.**
+3. **Пре-скоринг** (бесплатно): `2.0·log2(1+каналов) + вовлечённость (просмотры относительно
+   медианы канала) + свежесть + бонус за медиа`. Отбираются топ-`DIGEST_LLM_CANDIDATES` кластеров.
+4. **LLM** (один дешёвый вызов в день): Claude Haiku 4.5 оценивает интересность 1-10, отсеивает
+   рекламу/розыгрыши и пишет заголовок + 1-2 предложения по каждой новости (structured JSON).
+   Стоимость ~$0.03-0.08 в день при 30 каналах.
+5. **Дайджест**: итоговый балл = `LLM-интерес + 2·повторяемость + вовлечённость`, берутся
+   топ-`DIGEST_MAX_ITEMS`, форматируются со ссылками `t.me/канал/пост` и отправляются в
+   `DIGEST_TARGET_CHAT` (по умолчанию — Избранное).
+
+### Настройка
+
+В `.env` добавьте `ANTHROPIC_API_KEY` (модель настраивается через `LLM_MODEL`,
+по умолчанию `claude-haiku-4-5`), затем примените миграции: `alembic upgrade head`.
+
+### Команды
+
+```bash
+# подписки
+python -m apps.digest.main add-channel @durov
+python -m apps.digest.main list-channels
+python -m apps.digest.main remove-channel @durov
+
+# разовый прогон
+python -m apps.digest.main collect          # собрать новые посты
+python -m apps.digest.main build            # собрать дайджест и напечатать в консоль
+python -m apps.digest.main build --send     # собрать и отправить в Telegram
+
+# демон: сбор каждые DIGEST_COLLECT_INTERVAL_MIN минут,
+# дайджест ежедневно после DIGEST_HOUR (таймзона DIGEST_TIMEZONE)
+python -m apps.digest.main run
+```
+
+### Env-переменные
+
+| Переменная | По умолчанию | Смысл |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | ключ Anthropic API (обязателен для `build`) |
+| `LLM_MODEL` | `claude-haiku-4-5` | модель; можно поднять до `claude-sonnet-5` для качества |
+| `DIGEST_TARGET_CHAT` | `me` | куда слать: `me`, `@username` или id чата |
+| `DIGEST_HOUR` | `9` | час отправки дайджеста (локальное время) |
+| `DIGEST_TIMEZONE` | `Europe/Berlin` | таймзона для `DIGEST_HOUR` |
+| `DIGEST_MAX_ITEMS` | `12` | максимум новостей в дайджесте |
+| `DIGEST_LLM_CANDIDATES` | `40` | сколько кластеров отправлять в LLM |
+| `DIGEST_WINDOW_HOURS` | `24` | окно свежести постов |
+| `DIGEST_COLLECT_INTERVAL_MIN` | `30` | период сбора постов в демоне |
+
 ## 9) Минимальное качество кода
 
 ```bash
