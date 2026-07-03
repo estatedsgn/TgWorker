@@ -191,6 +191,18 @@ class Digest(Base):
     )
 
 
+class DigestSubscriber(Base):
+    __tablename__ = "digest_subscribers"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DailyCounter(Base):
     __tablename__ = "daily_counters"
     __table_args__ = (PrimaryKeyConstraint("account_id", "date", name="pk_daily_counters"),)

@@ -157,7 +157,32 @@ DRY_RUN=false python -m apps.tg_sender.main lead_1 "Привет! Это тес�
 В `.env` добавьте `ANTHROPIC_API_KEY` (модель настраивается через `LLM_MODEL`,
 по умолчанию `claude-haiku-4-5`), затем примените миграции: `alembic upgrade head`.
 
-### Команды
+### Telegram-бот (основной способ)
+
+Дайджестом управляет обычный бот (токен из @BotFather). Внутри процесса работают два клиента:
+userbot читает каналы (Bot API не умеет читать чужие каналы), бот — интерфейс и доставка.
+
+```bash
+python -m apps.tg_bot.main
+```
+
+Команды бота:
+- `/digest` — самое интересное за последние сутки, прямо сейчас
+- `/add @канал` / `/remove @канал` / `/list` — управление подборкой
+- `/start` — подписка на ежедневную рассылку (после `DIGEST_HOUR`)
+
+Доступ: `DIGEST_ALLOWED_USER_IDS=123,456` (пусто — бот отвечает всем, для личного
+использования обязательно ограничьте).
+
+Автозапуск на сервере (systemd):
+
+```bash
+sudo cp deploy/digest-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now digest-bot
+journalctl -u digest-bot -f
+```
+
+### CLI (альтернатива без бота)
 
 ```bash
 # подписки
@@ -180,6 +205,9 @@ python -m apps.digest.main run
 | Переменная | По умолчанию | Смысл |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | ключ Anthropic API (обязателен для `build`) |
+| `TG_BOT_TOKEN` | — | токен бота из @BotFather |
+| `TG_BOT_SESSION_PATH` | `digest_bot.session` | сессия бот-клиента |
+| `DIGEST_ALLOWED_USER_IDS` | пусто | кому разрешено пользоваться ботом (id через запятую) |
 | `LLM_MODEL` | `claude-haiku-4-5` | модель; можно поднять до `claude-sonnet-5` для качества |
 | `DIGEST_TARGET_CHAT` | `me` | куда слать: `me`, `@username` или id чата |
 | `DIGEST_HOUR` | `9` | час отправки дайджеста (локальное время) |

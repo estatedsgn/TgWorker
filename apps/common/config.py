@@ -19,7 +19,10 @@ class Config:
     tg_api_id: int | None = None
     tg_api_hash: str | None = None
     tg_session_path: str | None = None
+    tg_bot_token: str | None = None
+    tg_bot_session_path: str = "digest_bot.session"
     llm_model: str = "claude-haiku-4-5"
+    digest_allowed_user_ids: tuple[int, ...] = ()
     digest_target_chat: str = "me"
     digest_hour: int = 9
     digest_timezone: str = "Europe/Berlin"
@@ -62,6 +65,12 @@ def _parse_int(raw: str | None, default: int) -> int:
     return int(raw.strip())
 
 
+def _parse_int_list(raw: str | None) -> tuple[int, ...]:
+    if raw is None or not raw.strip():
+        return ()
+    return tuple(int(part) for part in raw.split(",") if part.strip())
+
+
 @lru_cache(maxsize=1)
 def get_config() -> Config:
     tg_api_id_raw = os.getenv("TG_API_ID")
@@ -74,7 +83,10 @@ def get_config() -> Config:
         tg_api_id=int(tg_api_id_raw) if tg_api_id_raw else None,
         tg_api_hash=os.getenv("TG_API_HASH"),
         tg_session_path=os.getenv("TG_SESSION_PATH"),
+        tg_bot_token=os.getenv("TG_BOT_TOKEN"),
+        tg_bot_session_path=os.getenv("TG_BOT_SESSION_PATH", "digest_bot.session"),
         llm_model=os.getenv("LLM_MODEL", "claude-haiku-4-5"),
+        digest_allowed_user_ids=_parse_int_list(os.getenv("DIGEST_ALLOWED_USER_IDS")),
         digest_target_chat=os.getenv("DIGEST_TARGET_CHAT", "me"),
         digest_hour=_parse_int(os.getenv("DIGEST_HOUR"), 9),
         digest_timezone=os.getenv("DIGEST_TIMEZONE", "Europe/Berlin"),

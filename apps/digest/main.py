@@ -5,15 +5,14 @@ import asyncio
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
 from telethon import TelegramClient
 
 from apps.common.config import get_config
-from apps.common.db import check_db_connection, get_session
+from apps.common.db import check_db_connection
 from apps.common.logging import get_logger, setup_logging
-from apps.common.models import DigestChannel
 from apps.common.telegram_client import get_client
 from apps.digest.builder import build_digest, send_digest
+from apps.digest.channels import add_channel, deactivate_channel, list_channels
 from apps.digest.collector import collect_all
 
 logger = get_logger("apps.digest")
@@ -29,55 +28,19 @@ async def _connected_client() -> TelegramClient:
 async def cmd_add_channel(identifier: str) -> None:
     client = await _connected_client()
     try:
-        entity = await client.get_entity(identifier)
+        await add_channel(client, identifier)
     finally:
         await client.disconnect()
 
-    channel_id = entity.id
-    if getattr(entity, "broadcast", False) or getattr(entity, "megagroup", False):
-        channel_id = int(f"-100{entity.id}")
-
-    with get_session() as session:
-        existing = session.get(DigestChannel, channel_id)
-        if existing:
-            existing.is_active = True
-            existing.username = getattr(entity, "username", None)
-            existing.title = getattr(entity, "title", None)
-            logger.info("channel reactivated", extra={"channel_id": channel_id})
-            return
-        session.add(
-            DigestChannel(
-                channel_id=channel_id,
-                username=getattr(entity, "username", None),
-                title=getattr(entity, "title", None),
-            )
-        )
-    logger.info(
-        "channel added",
-        extra={"channel_id": channel_id, "title": getattr(entity, "title", None)},
-    )
-
 
 def cmd_remove_channel(identifier: str) -> None:
-    username = identifier.lstrip("@").lower()
-    with get_session() as session:
-        channels = session.scalars(select(DigestChannel)).all()
-        for channel in channels:
-            matches_id = identifier.lstrip("-").isdigit() and channel.channel_id == int(identifier)
-            matches_name = (channel.username or "").lower() == username
-            if matches_id or matches_name:
-                channel.is_active = False
-                logger.info("channel deactivated", extra={"channel_id": channel.channel_id})
-                return
-    logger.warning("channel not found", extra={"identifier": identifier})
+    deactivate_channel(identifier)
 
 
 def cmd_list_channels() -> None:
-    with get_session() as session:
-        channels = session.scalars(select(DigestChannel).order_by(DigestChannel.added_at)).all()
-        for channel in channels:
-            status = "active" if channel.is_active else "inactive"
-            print(f"{channel.channel_id}\t@{channel.username or '-'}\t{status}\t{channel.title}")
+    for channel in list_channels():
+        status = "active" if channel.is_active else "inactive"
+        print(f"{channel.channel_id}\t@{channel.username or '-'}\t{status}\t{channel.title}")
 
 
 async def cmd_collect() -> None:

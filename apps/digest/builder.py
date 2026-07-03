@@ -108,7 +108,17 @@ def build_digest(digest_date: date | None = None) -> Digest | None:
         return digest
 
 
-def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
+def latest_digest_for(digest_date: date) -> Digest | None:
+    with get_session() as session:
+        return session.scalar(
+            select(Digest)
+            .where(Digest.digest_date == digest_date)
+            .order_by(Digest.created_at.desc())
+            .limit(1)
+        )
+
+
+def split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
     if len(text) <= limit:
         return [text]
     parts: list[str] = []
@@ -135,7 +145,7 @@ async def send_digest(client: TelegramClient, digest_id) -> None:
 
     target = config.digest_target_chat
     entity = "me" if target == "me" else await _resolve_target(client, target)
-    for part in _split_message(text):
+    for part in split_message(text):
         await client.send_message(entity, part, parse_mode="md", link_preview=False)
 
     with get_session() as session:

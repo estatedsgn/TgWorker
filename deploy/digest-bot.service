@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram digest bot (collector + bot UI + daily broadcast)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tg-leads-agent
+EnvironmentFile=/opt/tg-leads-agent/.env
+ExecStart=/opt/tg-leads-agent/.venv/bin/python -m apps.tg_bot.main
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

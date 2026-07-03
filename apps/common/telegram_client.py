@@ -56,3 +56,25 @@ def get_client(account_id: str) -> TelegramClient:
         api_hash=config.tg_api_hash,
         proxy=proxy,
     )
+
+
+def get_bot_client() -> TelegramClient:
+    """Client for a regular Bot API bot (BotFather token), used as the digest UI."""
+    config = get_config()
+    if not config.tg_api_id or not config.tg_api_hash:
+        raise ValueError("TG_API_ID and TG_API_HASH are required for Telegram")
+    if not config.tg_bot_token:
+        raise ValueError("TG_BOT_TOKEN is required for the digest bot")
+
+    proxy = _build_proxy()
+    logger.info(
+        "initializing telegram bot client",
+        extra={"session_path": config.tg_bot_session_path, "proxy_enabled": proxy is not None},
+    )
+
+    return TelegramClient(
+        session=config.tg_bot_session_path,
+        api_id=config.tg_api_id,
+        api_hash=config.tg_api_hash,
+        proxy=proxy,
+    )
