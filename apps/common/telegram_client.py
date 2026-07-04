@@ -35,7 +35,7 @@ def _build_proxy() -> tuple[Any, ...] | None:
     return (proxy_type, proxy_host, int(proxy_port), True, proxy_user, proxy_pass)
 
 
-def get_client(account_id: str) -> TelegramClient:
+def get_client() -> TelegramClient:
     config = get_config()
     if not config.tg_api_id or not config.tg_api_hash or not config.tg_session_path:
         raise ValueError("TG_API_ID, TG_API_HASH and TG_SESSION_PATH are required for Telegram")
@@ -44,7 +44,6 @@ def get_client(account_id: str) -> TelegramClient:
     logger.info(
         "initializing telegram client",
         extra={
-            "account_id": account_id,
             "session_path": config.tg_session_path,
             "proxy_enabled": proxy is not None,
         },

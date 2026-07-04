@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tg-leads-agent"
+name = "announce-parser"
 version = "0.1.0"
-description = "Telegram leads agent scaffold"
+description = "Parser collecting development-request announcements from Telegram chats and freelance exchanges"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,11 +13,20 @@ dependencies = [
   "alembic>=1.13,<2.0",
   "psycopg2-binary>=2.9,<3.0",
   "python-dotenv>=1.0,<2.0",
-  "ruff>=0.11,<1.0",
   "telethon>=1.36,<2.0",
   "PySocks>=1.7,<2.0",
-  "psycopg[binary]>=3.2,<4.0",
+  "feedparser>=6.0,<7.0",
+  "httpx>=0.27,<1.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.11,<1.0",
+]
+
+[project.scripts]
+announce-parser = "apps.parser.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "."}

@@ -1,250 +1,74 @@
-# tg-leads-agent — Package 0 + Package 1 + Package 2
+# announce-parser
 
-Каркас проекта для легитимной обработки Telegram-заявок через userbot (MTProto).
+Парсер объявлений о заказах на разработку. Собирает посты «ищу разработчика / нужен бот / сделать сайт» из Telegram-чатов и с фриланс-бирж, фильтрует по ключевым словам, дедуплицирует и складывает в Postgres. Ничего никому не отправляет — связь с заказчиками ведётся вручную.
 
-## Политика легитимности
+## Источники (v1)
 
-- Разрешён исходящий контакт **только** для лидов с `consent=true`.
-- Лиды с `consent=false` должны блокироваться бизнес-логикой отправки.
-- Если пользователь просит не писать (`не писать/отпишись/stop`), лид переводится в `DNC`.
-- Все сущности привязаны к `account_id` для масштабирования на N аккаунтов.
+| Тип | Что это | Как подключается |
+|---|---|---|
+| `telegram` | Чаты и каналы с заказами | Telethon-юзербот слушает список чатов в реальном времени, опционально догружает историю (`backfill_limit`) |
+| `rss` | FL.ru, Freelance.ru, Weblancer и любые другие RSS-ленты | Поллинг раз в `poll_interval_sec` (по умолчанию 300 с) с conditional GET |
+| `freelancehunt` | FreelanceHunt | Официальный API v2, нужен токен `FREELANCEHUNT_TOKEN` |
 
-## Структура репозитория
+Каждый источник — строка в таблице `sources`. Добавить новый чат или ленту — один INSERT, код трогать не нужно:
 
-```text
-.
-├── apps/
-│   ├── common/
-│   │   ├── config.py
-│   │   ├── db.py
-│   │   ├── logging.py
-│   │   ├── models.py
-│   │   └── telegram_client.py
-│   ├── tg_listener/main.py
-│   ├── tg_sender/main.py
-│   └── worker/main.py
-├── deploy/docker-compose.yml
-├── migrations/
-├── scripts/seed.py
-├── .env.example
-├── alembic.ini
-└── pyproject.toml
+```sql
+INSERT INTO sources (type, name, config)
+VALUES ('telegram', 'Фриланс Таверна', '{"chat": "@freelancetaverna", "backfill_limit": 200}');
+
+INSERT INTO sources (type, name, config)
+VALUES ('rss', 'Habr Freelance', '{"url": "https://freelance.habr.com/...", "poll_interval_sec": 300}');
 ```
 
-## 1) Подготовка
+Поля `config`: `chat`, `backfill_limit` (telegram); `url`, `poll_interval_sec` (rss); `skip_filter: true` — не применять фильтр ключевых слов (для лент, где и так только заказы).
 
-```bash
-cp .env.example .env
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+Новый тип источника (Kwork, HH.ru, VK, HTML-скраперы) — один класс-коллектор в `apps/collectors/` + запись в реестр `COLLECTORS` в `apps/collectors/__init__.py`.
+
+## Пайплайн
+
+```
+коллекторы → фильтр ключевых слов → дедупликация → announcements
 ```
 
-## 2) Поднять Postgres
+- **Фильтр** — таблица `keywords` (`include`/`exclude`), нормализованный поиск подстроки (регистр, ё/е, пробелы не важны). `exclude` побеждает: «Разработчик, вот резюме» отбрасывается. Слова правятся прямо в БД, парсер перечитывает их раз в `KEYWORDS_RELOAD_SEC` без рестарта.
+- **Дедупликация** — двухслойная: по `(source_id, external_id)` (повторные выдачи одного источника) и по `text_hash` (один заказ, запощенный в пять чатов, сохранится один раз).
+- **`announcements`** — текст, ссылка, контакт автора (`author_username` для Telegram), совпавшие ключевые слова, `status` (`new`/`processed` — переключай вручную в любом DB-клиенте).
+
+## Запуск
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file .env up -d
-docker ps
-```
+cp .env.example .env            # заполнить DATABASE_URL и, при необходимости, TG_*/FREELANCEHUNT_TOKEN
+pip install -e ".[dev]"
 
-## 3) Применить миграции
+docker compose -f deploy/docker-compose.yml up -d   # Postgres
+alembic upgrade head                                 # схема
+python scripts/seed_sources.py                       # стартовые источники и ключевые слова
 
-```bash
-source .venv/bin/activate
-alembic upgrade head
-```
-
-## 4) Засидить тестовые данные
-
-```bash
-source .venv/bin/activate
-python scripts/seed.py
-```
-
-Что создаётся:
-- `accounts.acc_01` (или `DEFAULT_ACCOUNT_ID` из env), лимиты: `50/20`, задержка `20..90`, timezone `Europe/Berlin`.
-- `leads.lead_1`: `consent=true`, `status=NEW`, `next_action_at=now`, `tg_username=placeholder_consent_username`.
-- `leads.lead_2`: `consent=false`, `status=NEW` (контрольный лид для блокировки исходящей коммуникации).
-
-Seed идемпотентный: повторный запуск обновляет/переиспользует записи, не плодит дубликаты.
-
-## 5) Telegram (Telethon) — первый логин и сессия
-
-Нужные env:
-- `TG_API_ID`
-- `TG_API_HASH`
-- `TG_SESSION_PATH` (например `/data/acc_01.session`)
-- `DEFAULT_ACCOUNT_ID=acc_01`
-- `DRY_RUN=true|false`
-
-Рекомендуется хранить `.session` на volume `/data` (персистентно).
-
-Одноразовый интерактивный логин (рекомендуемый способ):
-
-```bash
-source .venv/bin/activate
+# только для telegram-источников: первый интерактивный вход
 python scripts/telegram_login.py
+
+python -m apps.parser.main
 ```
 
-## 6) Smoke test сервисов
+Требования для Telegram: `TG_API_ID`/`TG_API_HASH` с https://my.telegram.org, аккаунт-юзербот должен **состоять** в парсируемых группах и быть **подписан** на каналы — иначе апдейты не приходят. Прокси при необходимости — `PROXY_*` в `.env`.
 
-```bash
-source .venv/bin/activate
-python -m apps.worker.main
-python -m apps.tg_listener.main
+Рестарты при падении — внешние: `restart: unless-stopped` в docker или `Restart=always` в systemd.
+
+## Структура
+
+```
+apps/
+  common/       конфиг, БД, логирование, Telethon-клиент, модели
+  collectors/   telegram.py, rss.py, freelancehunt.py, base.py (RawItem, реестр)
+  pipeline/     normalize.py, filter.py, process.py (фильтр → дедуп → insert)
+  parser/       main.py — entrypoint, один процесс, один event loop
+scripts/        telegram_login.py, seed_sources.py
+tests/          pytest, sqlite in-memory, фикстура RSS
 ```
 
-Ожидаемые логи:
-- `worker started` / `listener started`
-- `db connected`
-- `telegram connected`
-
-`apps.tg_listener.main` после старта **НЕ должен завершаться сразу**: процесс остаётся активным до отключения Telegram.
-
-## 7) Отправка сообщения
-
-### Dry run (рекомендуется сначала)
+## Тесты и линт
 
 ```bash
-DRY_RUN=true python -m apps.tg_sender.main lead_1 "Привет! Это тест"
-```
-
-- В Telegram ничего не отправляется.
-- В `messages` пишется `OUT` с `meta_json={"dry_run": true}`.
-
-### Реальная отправка
-
-```bash
-DRY_RUN=false python -m apps.tg_sender.main lead_1 "Привет! Это тест"
-```
-
-- Через Telethon отправляется сообщение по `tg_peer_id` или `tg_username`.
-- В `messages` сохраняется `OUT` и `tg_message_id`.
-
-## 8) Listener входящих
-
-`apps.tg_listener.main` слушает `NewMessage(incoming=True)`:
-- поиск лида: сначала `tg_peer_id`, потом `tg_username`
-- неизвестные лиды игнорируются (автосоздания нет)
-- дедуп входящих по `(lead_id, tg_message_id)`
-- запись `messages(direction=IN)`
-- обновление `lead` (`last_message_in`, `last_in_at`, `IN_DIALOG`, `next_action_at`)
-- обработка `не писать/отпишись/stop` -> `dnc=true`, `status=DNC`
-
-## 9) Минимальное качество кода
-
-```bash
-source .venv/bin/activate
+DATABASE_URL="sqlite://" pytest
 ruff check .
-```
-
-
-## E2E on VPS
-
-Ниже runbook для Ubuntu-сервера, который можно повторить с нуля.
-
-```bash
-cd /opt/tg-leads-agent
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-cp .env.example .env
-# заполните TG_API_ID/TG_API_HASH/TG_SESSION_PATH и DATABASE_URL в .env
-```
-
-1) Поднять Postgres:
-
-```bash
-docker compose -f deploy/docker-compose.yml --env-file .env up -d
-docker ps --filter name=tg_leads_postgres
-```
-
-2) Применить миграции:
-
-```bash
-source .venv/bin/activate
-set -a; source .env; set +a
-alembic upgrade head
-```
-
-3) Засидить тестовые данные:
-
-```bash
-source .venv/bin/activate
-set -a; source .env; set +a
-python scripts/seed.py
-```
-
-Seed создаёт `lead_test_1` с `consent=true` и `tg_username=placeholder_test_username`.
-Перед тестом замените username на реальный в БД, например:
-
-```sql
-update leads set tg_username='real_username' where lead_id='lead_test_1';
-```
-
-4) Экспорт env в shell (если ещё не сделали):
-
-```bash
-set -a; source .env; set +a
-```
-
-5) Создать Telethon session:
-
-```bash
-source .venv/bin/activate
-python scripts/telegram_login.py
-```
-
-После первого логина должен появиться файл `TG_SESSION_PATH` (`*.session`).
-
-6) Запустить listener (отдельный терминал/tmux):
-
-```bash
-source .venv/bin/activate
-set -a; source .env; set +a
-python -m apps.tg_listener.main
-```
-
-Ожидаемые логи: `listener started`, `db connected`, `telegram connected`.
-
-7) Отправить тестовое сообщение через sender:
-
-```bash
-source .venv/bin/activate
-set -a; source .env; set +a
-DRY_RUN=false python -m apps.tg_sender.main lead_test_1 "E2E test message"
-```
-
-8) SQL-проверки:
-
-```sql
-select lead_id, status, dnc, tg_peer_id, last_message_in, last_message_out, last_in_at, last_out_at
-from leads
-where lead_id='lead_test_1';
-
-select lead_id, direction, text, tg_message_id, ts
-from messages
-where lead_id='lead_test_1'
-order by ts desc
-limit 5;
-```
-
-Ожидаемый результат:
-- после sender есть запись `OUT` в `messages`;
-- после ответа с телефона listener пишет `IN` и обновляет `leads.status` на `IN_DIALOG`;
-- повторно обработанные входящие с тем же `tg_message_id` игнорируются (dedup).
-
-
-### Quick e2e flow (manual_1)
-
-```sql
-insert into leads (lead_id, account_id, tg_username, consent, status, stage, attempts_count, dnc)
-values ('manual_1', 'acc_01', 'your_test_username', true, 'NEW', 0, 0, false)
-on conflict (lead_id) do update set tg_username=excluded.tg_username, consent=true, dnc=false, status='NEW';
-```
-
-```bash
-python -m apps.tg_listener.main
-# in second shell
-python -m apps.tg_sender.main manual_1 "hello"
 ```

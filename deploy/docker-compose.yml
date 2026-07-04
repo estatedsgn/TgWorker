@@ -1,18 +1,18 @@
 services:
   postgres:
     image: postgres:15
-    container_name: tg_leads_postgres
+    container_name: announce_parser_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-tg_leads}
-      POSTGRES_USER: ${POSTGRES_USER:-tg_leads}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tg_leads}
+      POSTGRES_DB: ${POSTGRES_DB:-announce_parser}
+      POSTGRES_USER: ${POSTGRES_USER:-announce_parser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-announce_parser}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tg_leads} -d ${POSTGRES_DB:-tg_leads}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-announce_parser} -d ${POSTGRES_DB:-announce_parser}"]
       interval: 5s
       timeout: 5s
       retries: 10

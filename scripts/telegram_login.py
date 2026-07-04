@@ -12,7 +12,7 @@ async def run() -> None:
     logger = get_logger("scripts.telegram_login")
     config = get_config()
 
-    client = get_client(config.default_account_id)
+    client = get_client()
     await client.start()
     me = await client.get_me()
 
